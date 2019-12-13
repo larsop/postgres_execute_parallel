@@ -15,7 +15,7 @@ In this case the following is hapning :
 - The first statements takes 10 seconds and the first dblink connection works this all the time with this statement.
 - The 2 other connections continue to work with the rest of the statements while the first dblink connection work the first statement. 
 
-This mean that that this jobs tajs a total of 10 seconds if there three free database connections .
+This mean that that this jobs takes a total of 10 seconds if there are three free database connections .
 
 If you request to run more parallel requests than there are db connections available, 
 the number of parallel jobs will be reduced to the number of available connections. 
