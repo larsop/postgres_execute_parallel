@@ -15,7 +15,8 @@ RETURNS boolean AS
 $$
 declare
   i int = 1;
-  current_stmt_index int = 0;
+  current_stmt_index int = 1;
+  current_stmt_sent int = 0;
   num_stmts_executed int = 1;
   num_stmts_failed int = 0;
   num_conn_opened int = 0;
@@ -45,8 +46,6 @@ begin
 		    connstr := 'dbname=' || db;
 		    perform dblink_connect(conn, connstr);
 		    num_conn_opened = num_conn_opened + 1;
-				    rv := dblink_send_query(conn, stmts[current_stmt_index]);
-					current_stmt_index = current_stmt_index + 1;
 		end loop;
 	EXCEPTION WHEN OTHERS THEN
 	  	
@@ -73,28 +72,29 @@ begin
 		    if (conn_status = 0) THEN
 		    	BEGIN
 				    select val into retv from dblink_get_result(conn) as d(val text);
-			  		RAISE NOTICE 'current_stmt_index =% , val1 status= %', current_stmt_index, retv;
+			  		--RAISE NOTICE 'current_stmt_index =% , val1 status= %', current_stmt_index, retv;
 				    -- Two times to reuse connecton according to doc.
 				    select val into retvnull from dblink_get_result(conn) as d(val text);
-			  		RAISE NOTICE 'current_stmt_index =% , val2 status= %', current_stmt_index, retv;
+			  		--RAISE NOTICE 'current_stmt_index =% , val2 status= %', current_stmt_index, retv;
 				EXCEPTION WHEN OTHERS THEN
 					RAISE NOTICE 'Got an error for conn %  retv %', conn, retv;
 					num_stmts_failed = num_stmts_failed + 1;
 				END;
-			    IF (current_stmt_index < array_length(stmts,1)) THEN
+			    IF (current_stmt_index <= array_length(stmts,1)) THEN
+			   		RAISE NOTICE 'Call stmt %  on connection  %', stmts[current_stmt_index], conn;
 				    rv := dblink_send_query(conn, stmts[current_stmt_index]);
 					current_stmt_index = current_stmt_index + 1;
 					all_stmts_done = false;
+					new_stmts_started = true;
 				END IF;
-				new_stmts_started = true;
 			ELSE
 				all_stmts_done = false;
 		    END IF;
 
 		    
 		  end loop;
-		  RAISE NOTICE 'current_stmt_index =% , array_length= %', current_stmt_index, array_length(stmts,1);
-		  EXIT WHEN current_stmt_index = array_length(stmts,1) AND all_stmts_done = true; 
+-- 		  RAISE NOTICE 'current_stmt_index =% , array_length= %', current_stmt_index, array_length(stmts,1);
+		  EXIT WHEN (current_stmt_index - 1) = array_length(stmts,1) AND all_stmts_done = true AND new_stmts_started = false; 
 		  
 		  -- Do a slepp if nothings happens to reduce CPU load 
 		  IF (new_stmts_started = false) THEN 
@@ -111,7 +111,7 @@ begin
   END IF;
 
 
-  IF num_stmts_failed = 0 AND current_stmt_index = array_length(stmts,1) THEN
+  IF num_stmts_failed = 0 AND (current_stmt_index -1)= array_length(stmts,1) THEN
   	return true;
   else
   	return false;
