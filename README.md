@@ -1,8 +1,9 @@
 # What is this function doing ?
 Postgres sql code to execute an array of statements in parallel based on dblink.
 
+Returns true if all statements are executed OK.
 
-# Returns true if all statements are executed OK.
+[![Build Status](https://travis-ci.org/larsop/postgres_execute_parallel.svg?branch=master)](https://travis-ci.org/larsop/postgres_execute_parallel)
 
 # How to use :
 In the example below we send 11 statements to be executed in three parallel dblink connections .
