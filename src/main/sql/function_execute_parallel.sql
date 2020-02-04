@@ -28,6 +28,11 @@ declare
   rv int;
   new_stmts_started boolean; 
   all_stmts_done boolean; 
+  v_state text;
+  v_msg text;
+  v_detail text;
+  v_hint text;
+  v_context text;
 
   db text := current_database();
 begin
@@ -49,8 +54,11 @@ begin
 		end loop;
 	EXCEPTION WHEN OTHERS THEN
 	  	
-	  	RAISE NOTICE 'Failed to open all requested onnections % , reduce to  %', num_parallel_thread, num_conn_opened;
-	  	
+	    GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
+                    v_context = PG_EXCEPTION_CONTEXT;
+        RAISE NOTICE 'Failed to open all requested connections % , reduce to  % state  : %  message: % detail : % hint   : % context: %', 
+        num_parallel_thread, num_conn_opened, v_state, v_msg, v_detail, v_hint, v_context;
+		
 		-- Check if num parallel theads if bugger than num stmts
 		IF (num_conn_opened < num_parallel_thread) THEN
 	  	  	num_parallel_thread = num_conn_opened;
@@ -74,10 +82,13 @@ begin
 				    select val into retv from dblink_get_result(conn) as d(val text);
 			  		--RAISE NOTICE 'current_stmt_index =% , val1 status= %', current_stmt_index, retv;
 				    -- Two times to reuse connecton according to doc.
+				    
 				    select val into retvnull from dblink_get_result(conn) as d(val text);
 			  		--RAISE NOTICE 'current_stmt_index =% , val2 status= %', current_stmt_index, retv;
 				EXCEPTION WHEN OTHERS THEN
-					RAISE NOTICE 'Got an error for conn %  retv %', conn, retv;
+				    GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
+                    v_context = PG_EXCEPTION_CONTEXT;
+                    RAISE NOTICE 'Failed using conn % state  : % message: % detail : % hint   : % context: %', conn, v_state, v_msg, v_detail, v_hint, v_context;
 					num_stmts_failed = num_stmts_failed + 1;
 				END;
 			    IF (current_stmt_index <= array_length(stmts,1)) THEN
