@@ -37,6 +37,12 @@ declare
   db text := current_database();
 begin
 	
+	IF (Array_length(stmts, 1) IS NULL OR stmts IS NULL) THEN
+       RAISE NOTICE 'No statements to execute';
+       RETURN TRUE;
+    END IF;
+ 	
+	
 	-- Check if num parallel theads if bugger than num stmts
 	IF (num_parallel_thread > array_length(stmts,1)) THEN
   	  	num_parallel_thread = array_length(stmts,1);
