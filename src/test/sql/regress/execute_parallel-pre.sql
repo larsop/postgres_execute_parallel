@@ -18,7 +18,7 @@ declare
   current_stmt_index int = 1;
   current_stmt_sent int = 0;
   new_stmt text;
-  num_stmts_executed int = 1;
+  num_stmts_executed int = 0;
   num_stmts_failed int = 0;
   num_conn_opened int = 0;
   num_conn_notify int = 0;
@@ -30,7 +30,6 @@ declare
   connstr text;
   rv int;
   new_stmts_started boolean; 
-  all_stmts_done boolean; 
   v_state text;
   v_msg text;
   v_detail text;
@@ -84,7 +83,6 @@ begin
 	IF (num_conn_opened > 0) THEN
 	  	-- Enter main loop
 	  	LOOP 
-	  	  all_stmts_done = true;
 	  	  new_stmts_started = false;
 	  	  
 		  -- check if connections are not used
@@ -99,7 +97,6 @@ begin
 		    	    BEGIN
 				      --rv := dblink_send_query(conntions_array[i],'BEGIN; '||new_stmt|| '; COMMIT;');
 				    rv := dblink_send_query(conntions_array[i],new_stmt);
-					all_stmts_done = false;
 				    new_stmts_started = true;
 				    EXCEPTION WHEN OTHERS THEN
 				      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
@@ -114,17 +111,17 @@ begin
 		 -- check if connections are not used
 		 FOR i IN 1..num_parallel_thread loop
 		    IF (conn_stmts[i] is not null) THEN 
-		      all_stmts_done := false;
 		      --select count(*) from dblink_get_notify(conntions_array[i]) into num_conn_notify;
 		      --IF (num_conn_notify is not null and num_conn_notify > 0) THEN
 		      SELECT dblink_is_busy(conntions_array[i]) into conn_status;
 		      IF (conn_status = 0) THEN
 			    conn_stmts[i] := null;
+			    num_stmts_executed := num_stmts_executed + 1;
 		    	BEGIN
 				    select val into retv from dblink_get_result(conntions_array[i]) as d(val text);
 				    -- Two times to reuse connecton according to doc.
 				    select val into retvnull from dblink_get_result(conntions_array[i]) as d(val text);
-				    
+
 	              IF (current_stmt_index <= array_length(stmts,1)) THEN
 		            -- start next job
 		            -- TODO remove duplicate job
@@ -156,13 +153,12 @@ begin
 		    END IF;
 		  END loop;
 		  
--- 		  RAISE NOTICE 'current_stmt_index =% , array_length= %', current_stmt_index, array_length(stmts,1);
-		  EXIT WHEN (current_stmt_index - 1) = array_length(stmts,1) AND all_stmts_done = true; 
+		  EXIT WHEN num_stmts_executed = Array_length(stmts, 1); 
 		  
 		  -- Do a slepp if nothings happens to reduce CPU load 
 		  IF (new_stmts_started = false) THEN 
-		  	RAISE NOTICE 'Do sleep at current_stmt_index =% , array_length= %,  all_stmts_done = %, new_stmts_started = %', 
-		  	current_stmt_index, array_length(stmts,1), all_stmts_done, new_stmts_started;
+		  	RAISE NOTICE 'Do sleep at num_stmts_executed %s current_stmt_index =% , array_length= %, new_stmts_started = %', 
+		  	num_stmts_executed,current_stmt_index, array_length(stmts,1), new_stmts_started;
 		  	perform pg_sleep(1);
 		  END IF;
 		END LOOP ;
