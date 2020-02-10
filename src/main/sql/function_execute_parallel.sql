@@ -84,8 +84,8 @@ begin
 	IF (num_conn_opened > 0) THEN
 	  	-- Enter main loop
 	  	LOOP 
-	  	  new_stmts_started = false;
 	  	  all_stmts_done = true;
+	  	  new_stmts_started = false;
 	  	  
 		  -- check if connections are not used
 		  FOR i IN 1..num_parallel_thread loop
@@ -99,13 +99,14 @@ begin
 		    	    BEGIN
 				      --rv := dblink_send_query(conntions_array[i],'BEGIN; '||new_stmt|| '; COMMIT;');
 				    rv := dblink_send_query(conntions_array[i],new_stmt);
+					all_stmts_done = false;
+				    new_stmts_started = true;
 				    EXCEPTION WHEN OTHERS THEN
 				      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
                       v_context = PG_EXCEPTION_CONTEXT;
                       RAISE NOTICE 'Failed to send stmt: %s , using conn %, state  : % message: % detail : % hint : % context: %', conn_stmts[i], conntions_array[i], v_state, v_msg, v_detail, v_hint, v_context;
 				    END;
 					current_stmt_index = current_stmt_index + 1;
-					new_stmts_started = true;
 				END IF;
 		    END IF;
 		 END loop;
@@ -133,13 +134,13 @@ begin
 		    	    BEGIN
 				      --rv := dblink_send_query(conntions_array[i],'BEGIN; '||new_stmt|| '; COMMIT;');
 				    rv := dblink_send_query(conntions_array[i],new_stmt);
+				    new_stmts_started = true;
 				    EXCEPTION WHEN OTHERS THEN
 				      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
                       v_context = PG_EXCEPTION_CONTEXT;
                       RAISE NOTICE 'Failed to send stmt: %s , using conn %, state  : % message: % detail : % hint : % context: %', conn_stmts[i], conntions_array[i], v_state, v_msg, v_detail, v_hint, v_context;
 				    END;
 					current_stmt_index = current_stmt_index + 1;
-					new_stmts_started = true;
 				  END IF;
 	
 				EXCEPTION WHEN OTHERS THEN
@@ -156,11 +157,12 @@ begin
 		  END loop;
 		  
 -- 		  RAISE NOTICE 'current_stmt_index =% , array_length= %', current_stmt_index, array_length(stmts,1);
-		  EXIT WHEN (current_stmt_index - 1) = array_length(stmts,1) AND all_stmts_done = true AND new_stmts_started = false; 
+		  EXIT WHEN (current_stmt_index - 1) = array_length(stmts,1) AND all_stmts_done = true; 
 		  
 		  -- Do a slepp if nothings happens to reduce CPU load 
 		  IF (new_stmts_started = false) THEN 
-		  	RAISE NOTICE 'Do sleep at current_stmt_index =% , array_length= %', current_stmt_index, array_length(stmts,1);
+		  	RAISE NOTICE 'Do sleep at current_stmt_index =% , array_length= %,  all_stmts_done = %, new_stmts_started = %', 
+		  	current_stmt_index, array_length(stmts,1), all_stmts_done, new_stmts_started;
 		  	perform pg_sleep(1);
 		  END IF;
 		END LOOP ;
