@@ -91,13 +91,14 @@ begin
 		  FOR i IN 1..num_parallel_thread loop
 		    IF (conn_stmts[i] is null) THEN 
 		        IF (current_stmt_index <= array_length(stmts,1)) THEN
+		            -- start next job
+		            -- TODO remove duplicate job
 			        new_stmt := stmts[current_stmt_index];
 			        conn_stmts[i] :=  new_stmt;
 			   		RAISE NOTICE 'New stmt (%) on connection %', new_stmt, conntions_array[i];
 		    	    BEGIN
 				      --rv := dblink_send_query(conntions_array[i],'BEGIN; '||new_stmt|| '; COMMIT;');
 				    rv := dblink_send_query(conntions_array[i],new_stmt);
-
 				    EXCEPTION WHEN OTHERS THEN
 				      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
                       v_context = PG_EXCEPTION_CONTEXT;
@@ -113,16 +114,34 @@ begin
 		 FOR i IN 1..num_parallel_thread loop
 		    IF (conn_stmts[i] is not null) THEN 
 		      all_stmts_done := false;
-		      --select count(*) from dblink_get_notify(conn) into num_conn_notify;
-		      --if (num_conn_notify > 0) THEN
-		      select dblink_is_busy(conntions_array[i]) into conn_status;
+		      --select count(*) from dblink_get_notify(conntions_array[i]) into num_conn_notify;
+		      --IF (num_conn_notify is not null and num_conn_notify > 0) THEN
+		      SELECT dblink_is_busy(conntions_array[i]) into conn_status;
 		      IF (conn_status = 0) THEN
+			    conn_stmts[i] := null;
 		    	BEGIN
 				    select val into retv from dblink_get_result(conntions_array[i]) as d(val text);
-			  		--RAISE NOTICE 'current_stmt_index =% , val1 status= %', current_stmt_index, retv;
 				    -- Two times to reuse connecton according to doc.
 				    select val into retvnull from dblink_get_result(conntions_array[i]) as d(val text);
-			  		--RAISE NOTICE 'current_stmt_index =% , val2 status= %', current_stmt_index, retv;
+				    
+	              IF (current_stmt_index <= array_length(stmts,1)) THEN
+		            -- start next job
+		            -- TODO remove duplicate job
+			        new_stmt := stmts[current_stmt_index];
+			        conn_stmts[i] :=  new_stmt;
+			   		RAISE NOTICE 'New stmt (%) on connection %', new_stmt, conntions_array[i];
+		    	    BEGIN
+				      --rv := dblink_send_query(conntions_array[i],'BEGIN; '||new_stmt|| '; COMMIT;');
+				    rv := dblink_send_query(conntions_array[i],new_stmt);
+				    EXCEPTION WHEN OTHERS THEN
+				      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
+                      v_context = PG_EXCEPTION_CONTEXT;
+                      RAISE NOTICE 'Failed to send stmt: %s , using conn %, state  : % message: % detail : % hint : % context: %', conn_stmts[i], conntions_array[i], v_state, v_msg, v_detail, v_hint, v_context;
+				    END;
+					current_stmt_index = current_stmt_index + 1;
+					new_stmts_started = true;
+				  END IF;
+	
 				EXCEPTION WHEN OTHERS THEN
 				    GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
                     v_context = PG_EXCEPTION_CONTEXT;
@@ -132,7 +151,6 @@ begin
 					conntions_array[i] := 'conn' || i::text;
 		            perform dblink_connect(conntions_array[i], connstr);
 				END;
-			    conn_stmts[i] := null;
 		      END IF;
 		    END IF;
 		  END loop;
