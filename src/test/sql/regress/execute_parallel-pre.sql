@@ -17,13 +17,16 @@ declare
   i int = 1;
   current_stmt_index int = 1;
   current_stmt_sent int = 0;
+  new_stmt text;
   num_stmts_executed int = 1;
   num_stmts_failed int = 0;
   num_conn_opened int = 0;
+  num_conn_notify int = 0;
   retv text;
   retvnull text;
   conn_status int;
-  conn text;
+  conntions_array text[];
+  conn_stmts text[];
   connstr text;
   rv int;
   new_stmts_started boolean; 
@@ -33,6 +36,7 @@ declare
   v_detail text;
   v_hint text;
   v_context text;
+  
 
   db text := current_database();
 begin
@@ -40,6 +44,8 @@ begin
 	IF (Array_length(stmts, 1) IS NULL OR stmts IS NULL) THEN
        RAISE NOTICE 'No statements to execute';
        RETURN TRUE;
+    ELSE
+       RAISE NOTICE '% statements to execute in % threads', Array_length(stmts, 1), num_parallel_thread;
     END IF;
  	
 	
@@ -48,15 +54,17 @@ begin
   	  	num_parallel_thread = array_length(stmts,1);
   	END IF;
 
+  	connstr := 'dbname=' || db;
+
   	
   	-- Open connections for num_parallel_thread
 	-- and send off the first batch of jobs
 	BEGIN
 	  	for i in 1..num_parallel_thread loop
-		    conn := 'conn' || i::text;
-		    connstr := 'dbname=' || db;
-		    perform dblink_connect(conn, connstr);
-		    num_conn_opened = num_conn_opened + 1;
+		    conntions_array[i] := 'conn' || i::text;
+		    perform dblink_connect(conntions_array[i], connstr);
+		    num_conn_opened := num_conn_opened + 1;
+		    conn_stmts[i] := null;
 		end loop;
 	EXCEPTION WHEN OTHERS THEN
 	  	
@@ -78,52 +86,70 @@ begin
 	  	LOOP 
 	  	  new_stmts_started = false;
 	  	  all_stmts_done = true;
+	  	  
+		  -- check if connections are not used
+		  FOR i IN 1..num_parallel_thread loop
+		    IF (conn_stmts[i] is null) THEN 
+		        IF (current_stmt_index <= array_length(stmts,1)) THEN
+			        new_stmt := stmts[current_stmt_index];
+			        conn_stmts[i] :=  new_stmt;
+			   		RAISE NOTICE 'New stmt (%) on connection %', new_stmt, conntions_array[i];
+		    	    BEGIN
+				      --rv := dblink_send_query(conntions_array[i],'BEGIN; '||new_stmt|| '; COMMIT;');
+				    rv := dblink_send_query(conntions_array[i],new_stmt);
 
-		  for i in 1..num_parallel_thread loop
-			conn := 'conn' || i::text;
-		    select dblink_is_busy(conn) into conn_status;
+				    EXCEPTION WHEN OTHERS THEN
+				      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
+                      v_context = PG_EXCEPTION_CONTEXT;
+                      RAISE NOTICE 'Failed to send stmt: %s , using conn %, state  : % message: % detail : % hint : % context: %', conn_stmts[i], conntions_array[i], v_state, v_msg, v_detail, v_hint, v_context;
+				    END;
+					current_stmt_index = current_stmt_index + 1;
+					new_stmts_started = true;
+				END IF;
+		    END IF;
+		 END loop;
 
-		    if (conn_status = 0) THEN
+		 -- check if connections are not used
+		 FOR i IN 1..num_parallel_thread loop
+		    IF (conn_stmts[i] is not null) THEN 
+		      all_stmts_done := false;
+		      --select count(*) from dblink_get_notify(conn) into num_conn_notify;
+		      --if (num_conn_notify > 0) THEN
+		      select dblink_is_busy(conntions_array[i]) into conn_status;
+		      IF (conn_status = 0) THEN
 		    	BEGIN
-				    select val into retv from dblink_get_result(conn) as d(val text);
+				    select val into retv from dblink_get_result(conntions_array[i]) as d(val text);
 			  		--RAISE NOTICE 'current_stmt_index =% , val1 status= %', current_stmt_index, retv;
 				    -- Two times to reuse connecton according to doc.
-				    
-				    select val into retvnull from dblink_get_result(conn) as d(val text);
+				    select val into retvnull from dblink_get_result(conntions_array[i]) as d(val text);
 			  		--RAISE NOTICE 'current_stmt_index =% , val2 status= %', current_stmt_index, retv;
 				EXCEPTION WHEN OTHERS THEN
 				    GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
                     v_context = PG_EXCEPTION_CONTEXT;
-                    RAISE NOTICE 'Failed using conn % state  : % message: % detail : % hint   : % context: %', conn, v_state, v_msg, v_detail, v_hint, v_context;
-					num_stmts_failed = num_stmts_failed + 1;
+                    RAISE NOTICE 'Failed get value for stmt: %s , using conn %, state  : % message: % detail : % hint : % context: %', conn_stmts[i], conntions_array[i], v_state, v_msg, v_detail, v_hint, v_context;
+					num_stmts_failed := num_stmts_failed + 1;
+		   	 	    perform dblink_disconnect(conntions_array[i]);
+					conntions_array[i] := 'conn' || i::text;
+		            perform dblink_connect(conntions_array[i], connstr);
 				END;
-			    IF (current_stmt_index <= array_length(stmts,1)) THEN
-			   		RAISE NOTICE 'Call stmt %  on connection  %', stmts[current_stmt_index], conn;
-				    rv := dblink_send_query(conn, stmts[current_stmt_index]);
-					current_stmt_index = current_stmt_index + 1;
-					all_stmts_done = false;
-					new_stmts_started = true;
-				END IF;
-			ELSE
-				all_stmts_done = false;
+			    conn_stmts[i] := null;
+		      END IF;
 		    END IF;
-
-		    
-		  end loop;
+		  END loop;
+		  
 -- 		  RAISE NOTICE 'current_stmt_index =% , array_length= %', current_stmt_index, array_length(stmts,1);
 		  EXIT WHEN (current_stmt_index - 1) = array_length(stmts,1) AND all_stmts_done = true AND new_stmts_started = false; 
 		  
 		  -- Do a slepp if nothings happens to reduce CPU load 
 		  IF (new_stmts_started = false) THEN 
-		  	RAISE NOTICE 'sleep at current_stmt_index =% , array_length= %', current_stmt_index, array_length(stmts,1);
+		  	RAISE NOTICE 'Do sleep at current_stmt_index =% , array_length= %', current_stmt_index, array_length(stmts,1);
 		  	perform pg_sleep(1);
 		  END IF;
 		END LOOP ;
 	
 		-- cose connections for num_parallel_thread
 	  	for i in 1..num_parallel_thread loop
-		    conn := 'conn' || i::text;
-		    perform dblink_disconnect(conn);
+		    perform dblink_disconnect(conntions_array[i]);
 		end loop;
   END IF;
 
