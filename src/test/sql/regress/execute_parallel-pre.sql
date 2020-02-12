@@ -57,7 +57,6 @@ begin
 
   	
   	-- Open connections for num_parallel_thread
-	-- and send off the first batch of jobs
 	BEGIN
 	  	for i in 1..num_parallel_thread loop
 		    conntions_array[i] := 'conn' || i::text;
@@ -84,30 +83,7 @@ begin
 	  	-- Enter main loop
 	  	LOOP 
 	  	  new_stmts_started = false;
-	  	  
-		  -- check if connections are not used
-		  FOR i IN 1..num_parallel_thread loop
-		    IF (conn_stmts[i] is null) THEN 
-		        IF (current_stmt_index <= array_length(stmts,1)) THEN
-		            -- start next job
-		            -- TODO remove duplicate job
-			        new_stmt := stmts[current_stmt_index];
-			        conn_stmts[i] :=  new_stmt;
-			   		RAISE NOTICE 'New stmt (%) on connection %', new_stmt, conntions_array[i];
-		    	    BEGIN
-				      --rv := dblink_send_query(conntions_array[i],'BEGIN; '||new_stmt|| '; COMMIT;');
-				    rv := dblink_send_query(conntions_array[i],new_stmt);
-				    new_stmts_started = true;
-				    EXCEPTION WHEN OTHERS THEN
-				      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
-                      v_context = PG_EXCEPTION_CONTEXT;
-                      RAISE NOTICE 'Failed to send stmt: %s , using conn %, state  : % message: % detail : % hint : % context: %', conn_stmts[i], conntions_array[i], v_state, v_msg, v_detail, v_hint, v_context;
-				    END;
-					current_stmt_index = current_stmt_index + 1;
-				END IF;
-		    END IF;
-		 END loop;
-
+	  
 		 -- check if connections are not used
 		 FOR i IN 1..num_parallel_thread loop
 		    IF (conn_stmts[i] is not null) THEN 
@@ -122,24 +98,6 @@ begin
 				    -- Two times to reuse connecton according to doc.
 				    select val into retvnull from dblink_get_result(conntions_array[i]) as d(val text);
 
-	              IF (current_stmt_index <= array_length(stmts,1)) THEN
-		            -- start next job
-		            -- TODO remove duplicate job
-			        new_stmt := stmts[current_stmt_index];
-			        conn_stmts[i] :=  new_stmt;
-			   		RAISE NOTICE 'New stmt (%) on connection %', new_stmt, conntions_array[i];
-		    	    BEGIN
-				      --rv := dblink_send_query(conntions_array[i],'BEGIN; '||new_stmt|| '; COMMIT;');
-				    rv := dblink_send_query(conntions_array[i],new_stmt);
-				    new_stmts_started = true;
-				    EXCEPTION WHEN OTHERS THEN
-				      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
-                      v_context = PG_EXCEPTION_CONTEXT;
-                      RAISE NOTICE 'Failed to send stmt: %s , using conn %, state  : % message: % detail : % hint : % context: %', conn_stmts[i], conntions_array[i], v_state, v_msg, v_detail, v_hint, v_context;
-				    END;
-					current_stmt_index = current_stmt_index + 1;
-				  END IF;
-	
 				EXCEPTION WHEN OTHERS THEN
 				    GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
                     v_context = PG_EXCEPTION_CONTEXT;
@@ -151,6 +109,25 @@ begin
 				END;
 		      END IF;
 		    END IF;
+	        IF conn_stmts[i] is null AND current_stmt_index <= array_length(stmts,1) THEN
+	            -- start next job
+	            -- TODO remove duplicate job
+		        new_stmt := stmts[current_stmt_index];
+		        conn_stmts[i] :=  new_stmt;
+		   		RAISE NOTICE 'New stmt (%) on connection %', new_stmt, conntions_array[i];
+	    	    BEGIN
+			      --rv := dblink_send_query(conntions_array[i],'BEGIN; '||new_stmt|| '; COMMIT;');
+			    rv := dblink_send_query(conntions_array[i],new_stmt);
+			    new_stmts_started = true;
+			    EXCEPTION WHEN OTHERS THEN
+			      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
+                  v_context = PG_EXCEPTION_CONTEXT;
+                  RAISE NOTICE 'Failed to send stmt: %s , using conn %, state  : % message: % detail : % hint : % context: %', conn_stmts[i], conntions_array[i], v_state, v_msg, v_detail, v_hint, v_context;
+			    END;
+				current_stmt_index = current_stmt_index + 1;
+			END IF;
+		    
+		    
 		  END loop;
 		  
 		  EXIT WHEN num_stmts_executed = Array_length(stmts, 1); 
