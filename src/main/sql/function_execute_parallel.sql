@@ -57,7 +57,6 @@ begin
 
   	
   	-- Open connections for num_parallel_thread
-	-- and send off the first batch of jobs
 	BEGIN
 	  	for i in 1..num_parallel_thread loop
 		    conntions_array[i] := 'conn' || i::text;
