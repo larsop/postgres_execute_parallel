@@ -104,7 +104,6 @@ begin
                     RAISE NOTICE 'Failed get value for stmt: %s , using conn %, state  : % message: % detail : % hint : % context: %', conn_stmts[i], conntions_array[i], v_state, v_msg, v_detail, v_hint, v_context;
 					num_stmts_failed := num_stmts_failed + 1;
 		   	 	    perform dblink_disconnect(conntions_array[i]);
-					conntions_array[i] := 'conn' || i::text;
 		            perform dblink_connect(conntions_array[i], connstr);
 				END;
 		      END IF;
@@ -116,13 +115,18 @@ begin
 		        conn_stmts[i] :=  new_stmt;
 		   		RAISE NOTICE 'New stmt (%) on connection %', new_stmt, conntions_array[i];
 	    	    BEGIN
-			      --rv := dblink_send_query(conntions_array[i],'BEGIN; '||new_stmt|| '; COMMIT;');
+			    --rv := dblink_send_query(conntions_array[i],'BEGIN; '||new_stmt|| '; COMMIT;');
 			    rv := dblink_send_query(conntions_array[i],new_stmt);
+--		   	 	    perform dblink_disconnect(conntions_array[i]);
+--		            perform dblink_connect(conntions_array[i], connstr);
 			    new_stmts_started = true;
 			    EXCEPTION WHEN OTHERS THEN
 			      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
                   v_context = PG_EXCEPTION_CONTEXT;
                   RAISE NOTICE 'Failed to send stmt: %s , using conn %, state  : % message: % detail : % hint : % context: %', conn_stmts[i], conntions_array[i], v_state, v_msg, v_detail, v_hint, v_context;
+				  num_stmts_failed := num_stmts_failed + 1;
+		   	 	  perform dblink_disconnect(conntions_array[i]);
+		          perform dblink_connect(conntions_array[i], connstr);
 			    END;
 				current_stmt_index = current_stmt_index + 1;
 			END IF;
