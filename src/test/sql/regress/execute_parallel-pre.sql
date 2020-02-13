@@ -89,25 +89,19 @@ begin
 		      --select count(*) from dblink_get_notify(conntions_array[i]) into num_conn_notify;
 		      --IF (num_conn_notify is not null and num_conn_notify > 0) THEN
 		      SELECT dblink_is_busy(conntions_array[i]) into conn_status;
-		      RAISE NOTICE 'conn_status is % on connection % for stmt  %', conn_status, conntions_array[i], conn_stmts[i];
+--		      RAISE NOTICE 'conn_status is % on connection % for stmt  %', conn_status, conntions_array[i], conn_stmts[i];
 
 		      IF (conn_status = 0) THEN
 		        oldstmt := conn_stmts[i];
+		        conn_stmts[i] := null;
+			    num_stmts_executed := num_stmts_executed + 1;
+
 		    	BEGIN
 			    	LOOP 
 			    	  select val into retv from dblink_get_result(conntions_array[i]) as d(val text);
 		              RAISE NOTICE 'retv is % on connection % for statement oldstmt ( % )', retv, conntions_array[i], oldstmt;
-		              SELECT dblink_is_busy(conntions_array[i]) into conn_status;
-			    	  EXIT WHEN retv is null or retv = 'BEGIN' or retv = 'COMMIT' OR conn_status = 1;
+			    	  EXIT WHEN retv is null;
 			    	END LOOP ;
-
-			    	
-			    	IF retv is null or retv = 'COMMIT'  THEN 
-			          conn_stmts[i] := null;
-			          num_stmts_executed := num_stmts_executed + 1;
-			        ELSE 
-		              RAISE NOTICE 'More work to do, since retv is %  on connection % for statement oldstmt ( % )', retv, conntions_array[i], oldstmt;
-			    	END IF;
 
 			    	--PERFORM dblink_exec(conntions_array[i], '; COMMIT; ',true);
 
@@ -116,8 +110,6 @@ begin
                     v_context = PG_EXCEPTION_CONTEXT;
                     RAISE NOTICE 'Failed get value for stmt: % , using conn %, state  : % message: % detail : % hint : % context: %', oldstmt, conntions_array[i], v_state, v_msg, v_detail, v_hint, v_context;
                     conn_stmts[i] := null;
-			        num_stmts_executed := num_stmts_executed + 1;
-
 					num_stmts_failed := num_stmts_failed + 1;
 		   	 	    perform dblink_disconnect(conntions_array[i]);
 		            perform dblink_connect(conntions_array[i], connstr);
@@ -131,9 +123,9 @@ begin
 		        conn_stmts[i] :=  new_stmt;
 		   		RAISE NOTICE 'New stmt (%) on connection %', new_stmt, conntions_array[i];
 	    	    BEGIN
-		    	    
-		    	  command_string := Format('BEGIN; %s ; COMMIT;', new_stmt);
-		    	  -- 2D000 message: invalid transaction termination detail :  hint :  context: while executing query on dblink connection named "conn27"
+		          command_string := format('DO $body$ DECLARE  temp text; BEGIN %s ; commit; END $body$;', new_stmt);
+                  command_string := replace(command_string, 'select ', 'perform ');
+                  command_string := replace(command_string, 'SELECT ', 'perform ');
 			      rv := dblink_send_query(conntions_array[i],command_string);
 			      new_stmts_started = true;
 			    EXCEPTION WHEN OTHERS THEN
@@ -144,22 +136,27 @@ begin
 		   	 	  perform dblink_disconnect(conntions_array[i]);
 		          perform dblink_connect(conntions_array[i], connstr);
 			    END;
+			    stmts[current_stmt_index] = command_string ;
+
 				current_stmt_index = current_stmt_index + 1;
 			END IF;
 		    
 		    
 		  END loop;
 		  
+		  --SELECT resolve_overlap_gap_init('test_topo_jm.jm_ukomm_flate','org_jm.jm_ukomm_flate','geo',4258,2000,'test_topo_jm.jm_ukomm_flate_grid','test_topo_jm',1e-06,'test_topo_jm.jm_ukomm_flate_job_list')
+		  --DO $body$ DECLARE  temp text; BEGIN PERFORM resolve_overlap_gap_init('test_topo_jm.jm_ukomm_flate','org_jm.jm_ukomm_flate','geo',4258,2000,'test_topo_jm.jm_ukomm_flate_grid','test_topo_jm',1e-06,'test_topo_jm.jm_ukomm_flate_job_list') ; commit; END $body$;
+		  
 		  EXIT WHEN num_stmts_executed = Array_length(stmts, 1); 
 		  
 		  -- Do a slepp if nothings happens to reduce CPU load 
 		  IF (new_stmts_started = false) THEN 
-		  	RAISE NOTICE 'Do sleep at num_stmts_executed % , current_stmt_index =% , array_length= %, new_stmts_started = %', 
-		  	num_stmts_executed,current_stmt_index, array_length(stmts,1), new_stmts_started;
-		  	perform pg_sleep(1);
-		  ELSE
-		  	RAISE NOTICE 'Next roud num_stmts_executed % , current_stmt_index =% , array_length= %, new_stmts_started = %', 
-		  	num_stmts_executed,current_stmt_index, array_length(stmts,1), new_stmts_started;
+--		  	RAISE NOTICE 'Do sleep at num_stmts_executed % , current_stmt_index =% , array_length= %, new_stmts_started = %', 
+--		  	num_stmts_executed,current_stmt_index, array_length(stmts,1), new_stmts_started;
+		  	perform pg_sleep(0.0001);
+--		  ELSE
+--		  	RAISE NOTICE 'Next roud num_stmts_executed % , current_stmt_index =% , array_length= %, new_stmts_started = %', 
+--		  	num_stmts_executed,current_stmt_index, array_length(stmts,1), new_stmts_started;
 		  END IF;
 		END LOOP ;
 	
