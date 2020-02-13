@@ -7,9 +7,6 @@
 DROP FUNCTION IF EXISTS execute_parallel(stmts text[]);
 DROP FUNCTION IF EXISTS execute_parallel(stmts text[], num_parallel_thread int);
 
--- TODO add test return value
--- TODO catch error on main loop to be sure connenctinos are closed
-
 CREATE OR REPLACE FUNCTION execute_parallel(stmts text[], num_parallel_thread int DEFAULT 3)
 RETURNS boolean AS
 $$
@@ -28,6 +25,7 @@ declare
   conntions_array text[];
   conn_stmts text[];
   connstr text;
+  oldstmt text;
   rv int;
   new_stmts_started boolean; 
   v_state text;
@@ -35,7 +33,7 @@ declare
   v_detail text;
   v_hint text;
   v_context text;
-  
+  command_string text;
 
   db text := current_database();
 begin
@@ -87,21 +85,39 @@ begin
 		 -- check if connections are not used
 		 FOR i IN 1..num_parallel_thread loop
 		    IF (conn_stmts[i] is not null) THEN 
+
 		      --select count(*) from dblink_get_notify(conntions_array[i]) into num_conn_notify;
 		      --IF (num_conn_notify is not null and num_conn_notify > 0) THEN
 		      SELECT dblink_is_busy(conntions_array[i]) into conn_status;
+		      RAISE NOTICE 'conn_status is % on connection % for stmt  %', conn_status, conntions_array[i], conn_stmts[i];
+
 		      IF (conn_status = 0) THEN
-			    conn_stmts[i] := null;
-			    num_stmts_executed := num_stmts_executed + 1;
+		        oldstmt := conn_stmts[i];
 		    	BEGIN
-				    select val into retv from dblink_get_result(conntions_array[i]) as d(val text);
-				    -- Two times to reuse connecton according to doc.
-				    select val into retvnull from dblink_get_result(conntions_array[i]) as d(val text);
+			    	LOOP 
+			    	  select val into retv from dblink_get_result(conntions_array[i]) as d(val text);
+		              RAISE NOTICE 'retv is % on connection % for statement oldstmt ( % )', retv, conntions_array[i], oldstmt;
+		              SELECT dblink_is_busy(conntions_array[i]) into conn_status;
+			    	  EXIT WHEN retv is null or retv = 'BEGIN' or retv = 'COMMIT' OR conn_status = 1;
+			    	END LOOP ;
+
+			    	
+			    	IF retv is null or retv = 'COMMIT'  THEN 
+			          conn_stmts[i] := null;
+			          num_stmts_executed := num_stmts_executed + 1;
+			        ELSE 
+		              RAISE NOTICE 'More work to do, since retv is %  on connection % for statement oldstmt ( % )', retv, conntions_array[i], oldstmt;
+			    	END IF;
+
+			    	--PERFORM dblink_exec(conntions_array[i], '; COMMIT; ',true);
 
 				EXCEPTION WHEN OTHERS THEN
 				    GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
                     v_context = PG_EXCEPTION_CONTEXT;
-                    RAISE NOTICE 'Failed get value for stmt: %s , using conn %, state  : % message: % detail : % hint : % context: %', conn_stmts[i], conntions_array[i], v_state, v_msg, v_detail, v_hint, v_context;
+                    RAISE NOTICE 'Failed get value for stmt: % , using conn %, state  : % message: % detail : % hint : % context: %', oldstmt, conntions_array[i], v_state, v_msg, v_detail, v_hint, v_context;
+                    conn_stmts[i] := null;
+			        num_stmts_executed := num_stmts_executed + 1;
+
 					num_stmts_failed := num_stmts_failed + 1;
 		   	 	    perform dblink_disconnect(conntions_array[i]);
 		            perform dblink_connect(conntions_array[i], connstr);
@@ -115,11 +131,11 @@ begin
 		        conn_stmts[i] :=  new_stmt;
 		   		RAISE NOTICE 'New stmt (%) on connection %', new_stmt, conntions_array[i];
 	    	    BEGIN
-			    --rv := dblink_send_query(conntions_array[i],'BEGIN; '||new_stmt|| '; COMMIT;');
-			    rv := dblink_send_query(conntions_array[i],new_stmt);
---		   	 	    perform dblink_disconnect(conntions_array[i]);
---		            perform dblink_connect(conntions_array[i], connstr);
-			    new_stmts_started = true;
+		    	    
+		    	  command_string := Format('BEGIN; %s ; COMMIT;', new_stmt);
+		    	  -- 2D000 message: invalid transaction termination detail :  hint :  context: while executing query on dblink connection named "conn27"
+			      rv := dblink_send_query(conntions_array[i],command_string);
+			      new_stmts_started = true;
 			    EXCEPTION WHEN OTHERS THEN
 			      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
                   v_context = PG_EXCEPTION_CONTEXT;
@@ -138,9 +154,12 @@ begin
 		  
 		  -- Do a slepp if nothings happens to reduce CPU load 
 		  IF (new_stmts_started = false) THEN 
-		  	RAISE NOTICE 'Do sleep at num_stmts_executed %s current_stmt_index =% , array_length= %, new_stmts_started = %', 
+		  	RAISE NOTICE 'Do sleep at num_stmts_executed % , current_stmt_index =% , array_length= %, new_stmts_started = %', 
 		  	num_stmts_executed,current_stmt_index, array_length(stmts,1), new_stmts_started;
 		  	perform pg_sleep(1);
+		  ELSE
+		  	RAISE NOTICE 'Next roud num_stmts_executed % , current_stmt_index =% , array_length= %, new_stmts_started = %', 
+		  	num_stmts_executed,current_stmt_index, array_length(stmts,1), new_stmts_started;
 		  END IF;
 		END LOOP ;
 	
