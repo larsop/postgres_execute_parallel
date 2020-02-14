@@ -94,9 +94,11 @@ begin
 			    conn_stmts[i] := null;
 			    num_stmts_executed := num_stmts_executed + 1;
 		    	BEGIN
-				    select val into retv from dblink_get_result(conntions_array[i]) as d(val text);
-				    -- Two times to reuse connecton according to doc.
-				    select val into retvnull from dblink_get_result(conntions_array[i]) as d(val text);
+
+			    	LOOP 
+			    	  select val into retv from dblink_get_result(conntions_array[i]) as d(val text);
+			    	  EXIT WHEN retv is null;
+			    	END LOOP ;
 
 				EXCEPTION WHEN OTHERS THEN
 				    GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
@@ -104,7 +106,6 @@ begin
                     RAISE NOTICE 'Failed get value for stmt: %s , using conn %, state  : % message: % detail : % hint : % context: %', conn_stmts[i], conntions_array[i], v_state, v_msg, v_detail, v_hint, v_context;
 					num_stmts_failed := num_stmts_failed + 1;
 		   	 	    perform dblink_disconnect(conntions_array[i]);
-					conntions_array[i] := 'conn' || i::text;
 		            perform dblink_connect(conntions_array[i], connstr);
 				END;
 		      END IF;
@@ -116,13 +117,18 @@ begin
 		        conn_stmts[i] :=  new_stmt;
 		   		RAISE NOTICE 'New stmt (%) on connection %', new_stmt, conntions_array[i];
 	    	    BEGIN
-			      --rv := dblink_send_query(conntions_array[i],'BEGIN; '||new_stmt|| '; COMMIT;');
+			    --rv := dblink_send_query(conntions_array[i],'BEGIN; '||new_stmt|| '; COMMIT;');
 			    rv := dblink_send_query(conntions_array[i],new_stmt);
+--		   	 	    perform dblink_disconnect(conntions_array[i]);
+--		            perform dblink_connect(conntions_array[i], connstr);
 			    new_stmts_started = true;
 			    EXCEPTION WHEN OTHERS THEN
 			      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
                   v_context = PG_EXCEPTION_CONTEXT;
                   RAISE NOTICE 'Failed to send stmt: %s , using conn %, state  : % message: % detail : % hint : % context: %', conn_stmts[i], conntions_array[i], v_state, v_msg, v_detail, v_hint, v_context;
+				  num_stmts_failed := num_stmts_failed + 1;
+		   	 	  perform dblink_disconnect(conntions_array[i]);
+		          perform dblink_connect(conntions_array[i], connstr);
 			    END;
 				current_stmt_index = current_stmt_index + 1;
 			END IF;
@@ -134,9 +140,9 @@ begin
 		  
 		  -- Do a slepp if nothings happens to reduce CPU load 
 		  IF (new_stmts_started = false) THEN 
-		  	RAISE NOTICE 'Do sleep at num_stmts_executed %s current_stmt_index =% , array_length= %, new_stmts_started = %', 
-		  	num_stmts_executed,current_stmt_index, array_length(stmts,1), new_stmts_started;
-		  	perform pg_sleep(1);
+		  	--RAISE NOTICE 'Do sleep at num_stmts_executed %s current_stmt_index =% , array_length= %, new_stmts_started = %', 
+		  	--num_stmts_executed,current_stmt_index, array_length(stmts,1), new_stmts_started;
+			perform pg_sleep(0.0001);
 		  END IF;
 		END LOOP ;
 	

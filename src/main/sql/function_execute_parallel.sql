@@ -94,9 +94,11 @@ begin
 			    conn_stmts[i] := null;
 			    num_stmts_executed := num_stmts_executed + 1;
 		    	BEGIN
-				    select val into retv from dblink_get_result(conntions_array[i]) as d(val text);
-				    -- Two times to reuse connecton according to doc.
-				    select val into retvnull from dblink_get_result(conntions_array[i]) as d(val text);
+
+			    	LOOP 
+			    	  select val into retv from dblink_get_result(conntions_array[i]) as d(val text);
+			    	  EXIT WHEN retv is null;
+			    	END LOOP ;
 
 				EXCEPTION WHEN OTHERS THEN
 				    GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
@@ -138,9 +140,9 @@ begin
 		  
 		  -- Do a slepp if nothings happens to reduce CPU load 
 		  IF (new_stmts_started = false) THEN 
-		  	RAISE NOTICE 'Do sleep at num_stmts_executed %s current_stmt_index =% , array_length= %, new_stmts_started = %', 
-		  	num_stmts_executed,current_stmt_index, array_length(stmts,1), new_stmts_started;
-		  	perform pg_sleep(1);
+		  	--RAISE NOTICE 'Do sleep at num_stmts_executed %s current_stmt_index =% , array_length= %, new_stmts_started = %', 
+		  	--num_stmts_executed,current_stmt_index, array_length(stmts,1), new_stmts_started;
+			perform pg_sleep(0.0001);
 		  END IF;
 		END LOOP ;
 	
