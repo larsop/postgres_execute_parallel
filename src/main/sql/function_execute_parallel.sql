@@ -6,11 +6,13 @@
 
 DROP FUNCTION IF EXISTS execute_parallel(stmts text[]);
 DROP FUNCTION IF EXISTS execute_parallel(stmts text[], num_parallel_thread int);
+DROP FUNCTION IF EXISTS execute_parallel(stmts text[], num_parallel_thread int,user_connstr text);
 
 -- TODO add test return value
 -- TODO catch error on main loop to be sure connenctinos are closed
 
-CREATE OR REPLACE FUNCTION execute_parallel(stmts text[], num_parallel_thread int DEFAULT 3)
+-- user_connstr check https://www.postgresql.org/docs/11/contrib-dblink-connect.html
+CREATE OR REPLACE FUNCTION execute_parallel(stmts text[], num_parallel_thread int DEFAULT 3, user_connstr text DEFAULT NULL)
 RETURNS boolean AS
 $$
 declare
@@ -46,15 +48,22 @@ begin
     ELSE
        RAISE NOTICE '% statements to execute in % threads', Array_length(stmts, 1), num_parallel_thread;
     END IF;
- 	
-	
+    
 	-- Check if num parallel theads if bugger than num stmts
 	IF (num_parallel_thread > array_length(stmts,1)) THEN
   	  	num_parallel_thread = array_length(stmts,1);
   	END IF;
 
-  	connstr := 'dbname=' || db;
-
+  	
+    IF user_connstr IS NULL THEN
+      connstr := 'dbname=' || db;
+    ELSE
+      --connstr := 'dbname=' || db || ' port=5432';
+      connstr := user_connstr;
+    END IF;
+ 	
+    RAISE NOTICE '% statements to execute in % threads using %', Array_length(stmts, 1), num_parallel_thread, connstr;
+	
   	
   	-- Open connections for num_parallel_thread
 	BEGIN
@@ -162,5 +171,5 @@ begin
 END;
 $$ language plpgsql;
 
-GRANT EXECUTE on FUNCTION execute_parallel(stmts text[], num_parallel_thread int) TO public;
+GRANT EXECUTE on FUNCTION execute_parallel(stmts text[], num_parallel_thread int,user_connstr text) TO public;
 
