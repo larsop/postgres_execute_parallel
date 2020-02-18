@@ -11,6 +11,7 @@ DROP FUNCTION IF EXISTS execute_parallel(stmts text[], num_parallel_thread int,u
 -- TODO add test return value
 -- TODO catch error on main loop to be sure connenctinos are closed
 
+-- user_connstr check https://www.postgresql.org/docs/11/contrib-dblink-connect.html
 CREATE OR REPLACE FUNCTION execute_parallel(stmts text[], num_parallel_thread int DEFAULT 3, user_connstr text DEFAULT NULL)
 RETURNS boolean AS
 $$
