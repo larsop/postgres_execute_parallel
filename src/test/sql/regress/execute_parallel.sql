@@ -1,8 +1,8 @@
 --SET client_min_messages to 'debug';
 
 CREATE EXTENSION dblink; -- needed by  execute_parallel
-select 1, execute_parallel('{"select pg_sleep(10)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)"}'::text[],3);
-select 2, execute_parallel('{"select aaaapg_sleep(10)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)"}'::text[],3);
+select 1, execute_parallel('{"select pg_sleep(10)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)"}'::text[],3,true);
+select 2, execute_parallel('{"select aaaapg_sleep(10)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)","select pg_sleep(1)"}'::text[],3,false);
 select 3, execute_parallel('{"create table test(c1 int)"}'::text[],3);
 select 4, execute_parallel('{"insert  into testfeil) values (2)","insert  into test(c1) values (1)","insert  into test(c1) values (1)","insert  into test(c1) values (1)","insert  into test(c1) values (1)","insert  into test(c1) values (1)","insert  into test(c1) values (1)"}'::text[],3);
 select 5, count(*) from test where c1=1;
