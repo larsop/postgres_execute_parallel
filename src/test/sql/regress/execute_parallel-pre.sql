@@ -46,6 +46,7 @@ declare
   
 
   db text := current_database();
+  db_port text := inet_server_port();
 begin
 	
 	IF (Array_length(_stmts, 1) IS NULL OR _stmts IS NULL) THEN
@@ -62,13 +63,17 @@ begin
 
   	
     IF _user_connstr IS NULL THEN
-      connstr := 'dbname=' || db;
+      IF db_port IS NOT NULL THEN
+        connstr := 'dbname=' || db || ' port=' || db_port;
+      ELSE 
+        connstr := 'dbname=' || db;
+      END IF;
     ELSE
       --connstr := 'dbname=' || db || ' port=5432';
       connstr := _user_connstr;
     END IF;
  	
-    RAISE NOTICE '% statements to execute in % threads using %', Array_length(_stmts, 1), _num_parallel_thread, connstr;
+    RAISE NOTICE '% ssstatements to execute in % threads using %', Array_length(_stmts, 1), _num_parallel_thread, connstr;
 	
   	
   	-- Open connections for _num_parallel_thread
