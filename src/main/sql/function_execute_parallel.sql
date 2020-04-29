@@ -46,7 +46,6 @@ declare
   
 
   db text := current_database();
-  db_port text := inet_server_port();
 begin
 	
 	IF (Array_length(_stmts, 1) IS NULL OR _stmts IS NULL) THEN
@@ -63,7 +62,7 @@ begin
 
   	
     IF _user_connstr IS NULL THEN
-      connstr := 'dbname=' || db || ' port=' || db_port;
+      connstr := 'dbname=' || db;
     ELSE
       --connstr := 'dbname=' || db || ' port=5432';
       connstr := _user_connstr;
