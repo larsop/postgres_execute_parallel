@@ -46,9 +46,8 @@ declare
   
 
   db text := current_database();
-  
-  -- the idea to use inet_server_port from Andreas Wicht 
-  db_port text := inet_server_port();
+  db_port text;
+
 begin
 	
 	IF (Array_length(_stmts, 1) IS NULL OR _stmts IS NULL) THEN
@@ -65,6 +64,12 @@ begin
 
   	
     IF _user_connstr IS NULL THEN
+
+      SELECT setting
+        INTO db_port
+        FROM pg_catalog.pg_settings
+        WHERE name = 'port';
+
       IF db_port IS NOT NULL THEN
         connstr := 'dbname=' || db || ' port=' || db_port;
       ELSE 
@@ -75,7 +80,7 @@ begin
       connstr := _user_connstr;
     END IF;
  	
-    RAISE NOTICE '% ssstatements to execute in % threads using %', Array_length(_stmts, 1), _num_parallel_thread, connstr;
+    RAISE NOTICE '% statements to execute in % threads using %', Array_length(_stmts, 1), _num_parallel_thread, connstr;
 	
   	
   -- Open connections for _num_parallel_thread
