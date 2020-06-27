@@ -153,6 +153,8 @@ begin
 		        new_stmt := _stmts[current_stmt_index];
 		        conn_stmts[i] :=  new_stmt;
 		   		RAISE NOTICE 'New stmt (%) on connection %', new_stmt, conntions_array[i];
+		   		-- Handle null value in statement list
+		   		IF new_stmt is not NULL THEN
 	    	    BEGIN
 		    	  IF _close_open_conn=true THEN
 		   	 	    perform dblink_disconnect(conntions_array[i]);
@@ -160,15 +162,18 @@ begin
 		    	  END IF;
 			      --rv := dblink_send_query(conntions_array[i],'BEGIN; '||new_stmt|| '; COMMIT;');
 			      rv := dblink_send_query(conntions_array[i],new_stmt);
-			    new_stmts_started = true;
-			    EXCEPTION WHEN OTHERS THEN
-			      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
-                  v_context = PG_EXCEPTION_CONTEXT;
-                  RAISE NOTICE 'Failed to send stmt: %s , using conn %, state  : % message: % detail : % hint : % context: %', conn_stmts[i], conntions_array[i], v_state, v_msg, v_detail, v_hint, v_context;
-				  num_stmts_failed := num_stmts_failed + 1;
-		   	 	  perform dblink_disconnect(conntions_array[i]);
-		          perform dblink_connect(conntions_array[i], connstr);
-			    END;
+			      new_stmts_started = true;
+			      EXCEPTION WHEN OTHERS THEN
+			        GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
+                    v_context = PG_EXCEPTION_CONTEXT;
+                    RAISE NOTICE 'Failed to send stmt: %s , using conn %, state  : % message: % detail : % hint : % context: %', conn_stmts[i], conntions_array[i], v_state, v_msg, v_detail, v_hint, v_context;
+				    num_stmts_failed := num_stmts_failed + 1;
+		   	 	    perform dblink_disconnect(conntions_array[i]);
+		            perform dblink_connect(conntions_array[i], connstr);
+			      END;
+			    ELSE
+			      num_stmts_executed := num_stmts_executed + 1;
+			    END IF;
 				current_stmt_index = current_stmt_index + 1;
 			END IF;
 		    
