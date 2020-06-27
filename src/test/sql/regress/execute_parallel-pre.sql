@@ -46,7 +46,8 @@ declare
   
 
   db text := current_database();
-  db_port text := inet_server_port();
+  db_port text;
+
 begin
 	
 	IF (Array_length(_stmts, 1) IS NULL OR _stmts IS NULL) THEN
@@ -63,6 +64,12 @@ begin
 
   	
     IF _user_connstr IS NULL THEN
+
+      SELECT setting
+        INTO db_port
+        FROM pg_catalog.pg_settings
+        WHERE name = 'port';
+
       IF db_port IS NOT NULL THEN
         connstr := 'dbname=' || db || ' port=' || db_port;
       ELSE 
@@ -73,30 +80,38 @@ begin
       connstr := _user_connstr;
     END IF;
  	
-    RAISE NOTICE '% ssstatements to execute in % threads using %', Array_length(_stmts, 1), _num_parallel_thread, connstr;
+    RAISE NOTICE '% statements to execute in % threads using %', Array_length(_stmts, 1), _num_parallel_thread, connstr;
 	
   	
-  	-- Open connections for _num_parallel_thread
-	BEGIN
-	  	for i in 1.._num_parallel_thread loop
-		    conntions_array[i] := 'conn' || i::text;
-		    perform dblink_connect(conntions_array[i], connstr);
-		    num_conn_opened := num_conn_opened + 1;
-		    conn_stmts[i] := null;
-		end loop;
-	EXCEPTION WHEN OTHERS THEN
-	  	
-	    GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
-                    v_context = PG_EXCEPTION_CONTEXT;
-        RAISE NOTICE 'Failed to open all requested connections % , reduce to  % state  : %  message: % detail : % hint   : % context: %', 
-        _num_parallel_thread, num_conn_opened, v_state, v_msg, v_detail, v_hint, v_context;
-		
-		-- Check if num parallel theads if bugger than num _stmts
-		IF (num_conn_opened < _num_parallel_thread) THEN
-	  	  	_num_parallel_thread = num_conn_opened;
-	  	END IF;
+  -- Open connections for _num_parallel_thread
+  BEGIN
+    for i in 1.._num_parallel_thread loop
+      conntions_array[i] := 'conn' || i::text;
+      perform dblink_connect(conntions_array[i], connstr);
+      num_conn_opened := num_conn_opened + 1;
+      conn_stmts[i] := null;
+    end loop;
+  EXCEPTION WHEN OTHERS THEN
 
-	END;
+    GET STACKED DIAGNOSTICS
+      v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT,
+      v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
+      v_context = PG_EXCEPTION_CONTEXT;
+
+    IF num_conn_opened = 0 THEN
+      RAISE EXCEPTION 'Failed to open any connection: % - detail: % - hint: % - context: %',
+        v_msg, v_detail, v_hint, v_context;
+    END IF;
+
+    RAISE WARNING 'Failed to open all requested connections % , reduce to  % state  : %  message: % detail : % hint   : % context: %', 
+      _num_parallel_thread, num_conn_opened, v_state, v_msg, v_detail, v_hint, v_context;
+
+    -- Check if num parallel theads if bugger than num _stmts
+    IF (num_conn_opened < _num_parallel_thread) THEN
+      _num_parallel_thread = num_conn_opened;
+    END IF;
+
+  END;
 
 
 	IF (num_conn_opened > 0) THEN
@@ -138,6 +153,8 @@ begin
 		        new_stmt := _stmts[current_stmt_index];
 		        conn_stmts[i] :=  new_stmt;
 		   		RAISE NOTICE 'New stmt (%) on connection %', new_stmt, conntions_array[i];
+		   		-- Handle null value in statement list
+		   		IF new_stmt is not NULL THEN
 	    	    BEGIN
 		    	  IF _close_open_conn=true THEN
 		   	 	    perform dblink_disconnect(conntions_array[i]);
@@ -145,15 +162,18 @@ begin
 		    	  END IF;
 			      --rv := dblink_send_query(conntions_array[i],'BEGIN; '||new_stmt|| '; COMMIT;');
 			      rv := dblink_send_query(conntions_array[i],new_stmt);
-			    new_stmts_started = true;
-			    EXCEPTION WHEN OTHERS THEN
-			      GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
-                  v_context = PG_EXCEPTION_CONTEXT;
-                  RAISE NOTICE 'Failed to send stmt: %s , using conn %, state  : % message: % detail : % hint : % context: %', conn_stmts[i], conntions_array[i], v_state, v_msg, v_detail, v_hint, v_context;
-				  num_stmts_failed := num_stmts_failed + 1;
-		   	 	  perform dblink_disconnect(conntions_array[i]);
-		          perform dblink_connect(conntions_array[i], connstr);
-			    END;
+			      new_stmts_started = true;
+			      EXCEPTION WHEN OTHERS THEN
+			        GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
+                    v_context = PG_EXCEPTION_CONTEXT;
+                    RAISE NOTICE 'Failed to send stmt: %s , using conn %, state  : % message: % detail : % hint : % context: %', conn_stmts[i], conntions_array[i], v_state, v_msg, v_detail, v_hint, v_context;
+				    num_stmts_failed := num_stmts_failed + 1;
+		   	 	    perform dblink_disconnect(conntions_array[i]);
+		            perform dblink_connect(conntions_array[i], connstr);
+			      END;
+			    ELSE
+			      num_stmts_executed := num_stmts_executed + 1;
+			    END IF;
 				current_stmt_index = current_stmt_index + 1;
 			END IF;
 		    
