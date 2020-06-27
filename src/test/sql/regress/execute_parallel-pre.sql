@@ -10,15 +10,17 @@ DROP FUNCTION IF EXISTS execute_parallel(_stmts text[]);
 DROP FUNCTION IF EXISTS execute_parallel(_stmts text[], _num_parallel_thread int);
 DROP FUNCTION IF EXISTS execute_parallel(_stmts text[], _num_parallel_thread int,_user_connstr text);
 DROP FUNCTION IF EXISTS execute_parallel(_stmts text[], _num_parallel_thread int,_close_open_conn boolean,_user_connstr text);
+DROP FUNCTION IF EXISTS execute_parallel(_stmts text[], _num_parallel_thread int,_close_open_conn boolean,_user_connstr text, _contiune_after_stat_exception boolean);
 
 
 CREATE OR REPLACE FUNCTION execute_parallel(
 _stmts text[], -- The list of statements to run
 _num_parallel_thread int DEFAULT 3, -- number threads/connections to use
 _close_open_conn boolean DEFAULT false, -- always close connection before and open before sending next statement
-_user_connstr text DEFAULT NULL -- check https://www.postgresql.org/docs/11/contrib-dblink-connect.html
+_user_connstr text DEFAULT NULL, -- check https://www.postgresql.org/docs/11/contrib-dblink-connect.html
+_contiune_after_stat_exception boolean DEFAULT true -- If true, will contiunue to run even if one the statements fails
 )
-RETURNS boolean AS
+RETURNS int AS
 $$
 declare
   i int = 1;
@@ -47,6 +49,9 @@ declare
 
   db text := current_database();
   db_port text;
+  
+  raise_error text;
+  raise_error_temp text;
 
 begin
 	
@@ -120,6 +125,7 @@ begin
 	  	  new_stmts_started = false;
 	  
 		 -- check if connections are not used
+		 raise_error_temp = null;
 		 FOR i IN 1.._num_parallel_thread loop
 		    IF (conn_stmts[i] is not null) THEN 
 		      --select count(*) from dblink_get_notify(conntions_array[i]) into num_conn_notify;
@@ -139,11 +145,18 @@ begin
 				EXCEPTION WHEN OTHERS THEN
 				    GET STACKED DIAGNOSTICS v_state = RETURNED_SQLSTATE, v_msg = MESSAGE_TEXT, v_detail = PG_EXCEPTION_DETAIL, v_hint = PG_EXCEPTION_HINT,
                     v_context = PG_EXCEPTION_CONTEXT;
-                    RAISE NOTICE 'Failed get value for stmt: %s , using conn %, state  : % message: % detail : % hint : % context: %', 
+                    RAISE NOTICE 'Failed get value for stmt: % , using conn %, state  : % message: % detail : % hint : % context: %', 
                     old_stmt, conntions_array[i], v_state, v_msg, v_detail, v_hint, v_context;
 					num_stmts_failed := num_stmts_failed + 1;
 		   	 	    perform dblink_disconnect(conntions_array[i]);
 		            perform dblink_connect(conntions_array[i], connstr);
+		            raise_error_temp = Format('Failed get value for stmt: %L , using conn %L, state  : %L message: %L detail : %L hint : %L context: %L', 
+                    old_stmt, conntions_array[i], v_state, v_msg, v_detail, v_hint, v_context);
+                    IF raise_error IS NULL THEN
+                      raise_error = raise_error_temp;
+                    ELSE
+                      raise_error = raise_error||';;;;;'||raise_error_temp;
+                    END IF;
 				END;
 		      END IF;
 		    END IF;
@@ -177,10 +190,12 @@ begin
 				current_stmt_index = current_stmt_index + 1;
 			END IF;
 		    
-		    
 		  END loop;
 		  
-		  EXIT WHEN num_stmts_executed = Array_length(_stmts, 1); 
+		  EXIT WHEN num_stmts_executed = Array_length(_stmts, 1) OR 
+		  (_contiune_after_stat_exception = false AND raise_error_temp is not null); 
+		  
+		  
 		  
 		  -- Do a slepp if nothings happens to reduce CPU load 
 		  IF (new_stmts_started = false) THEN 
@@ -199,14 +214,18 @@ begin
   RAISE NOTICE '% statements to execute in % threads, done with % , failed num %', 
   Array_length(_stmts, 1), _num_parallel_thread, (current_stmt_index -1), num_stmts_failed;
 
+  		            
+
   IF num_stmts_failed = 0 AND (current_stmt_index -1)= array_length(_stmts,1) THEN
-  	return true;
+  	return (current_stmt_index -1);
   else
-  	return false;
+  	IF raise_error is not null THEN
+  	  RAISE EXCEPTION 'Num ok stats % raise_error %', (current_stmt_index -1)-num_stmts_failed, raise_error USING HINT = 'An error happend in one the statemnet, please chem them ';
+  	END IF;  
   END IF;
   
 END;
 $$ language plpgsql;
 
-GRANT EXECUTE on FUNCTION execute_parallel(_stmts text[], _num_parallel_thread int,_close_open_conn boolean,_user_connstr text) TO public;
+GRANT EXECUTE on FUNCTION execute_parallel(_stmts text[], _num_parallel_thread int,_close_open_conn boolean,_user_connstr text, _contiune_after_stat_exception boolean) TO public;
 

@@ -1,9 +1,14 @@
-1|t
-2|f
-3|t
-4|f
+1|11
+ERROR:  function execute_parallel(text[], integer, boolean, boolean) does not exist at character 11
+3|1
+ERROR:  Num ok stats 6 raise_error Failed get value for stmt: 'insert  into testfeil) values (2)' , using conn 'conn1', state  : '42601' message: 'syntax error at or near ")"' detail : '' hint : '' context: 'while executing query on dblink connection named "conn1"
+SQL statement "select val           from dblink_get_result(conntions_array[i]) as d(val text)"
+PL/pgSQL function execute_parallel(text[],integer,boolean,text,boolean) line 118 at SQL statement'
 5|6
 6|0
-7|t
+7|6
 8|12
 9|0
+ERROR:  Num ok stats 1 raise_error Failed get value for stmt: 'select 1/0' , using conn 'conn1', state  : '22012' message: 'division by zero' detail : '' hint : '' context: 'while executing query on dblink connection named "conn1"
+SQL statement "select val           from dblink_get_result(conntions_array[i]) as d(val text)"
+PL/pgSQL function execute_parallel(text[],integer,boolean,text,boolean) line 118 at SQL statement'

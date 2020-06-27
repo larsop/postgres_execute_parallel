@@ -1,7 +1,7 @@
 # What is this function doing ?
 Postgres sql code to execute an array of statements in parallel based on dblink.
 
-Returns true if all statements are executed OK.
+Returns the number of ok executed statements.
 
 [![Build Status](https://travis-ci.org/larsop/postgres_execute_parallel.svg?branch=master)](https://travis-ci.org/larsop/postgres_execute_parallel)
 
@@ -21,7 +21,9 @@ This mean that that this jobs takes a total of 10 seconds if there are three fre
 If you request to run more parallel requests than there are db connections available, 
 the number of parallel jobs will be reduced to the number of available connections. 
 
-If you have a error in one the statements only that wil fail the other statements will execute ok.
+If you have a error in one of the statements an exception will be thrown with the error.
+
+It execute the rest of the statements of _contiune_after_stat_exception is set false when it's callled
 
 
 # How to install :
