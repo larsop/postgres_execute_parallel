@@ -23,7 +23,7 @@ the number of parallel jobs will be reduced to the number of available connectio
 
 If you have a error in one of the statements an exception will be thrown with the error.
 
-It execute the rest of the statements of _contiune_after_stat_exception is set false when it's callled
+It will execute the rest of the statements if not the _contiune_after_stat_exception is set false when called, the default value is true.
 
 
 # How to install :
