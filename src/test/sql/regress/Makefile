@@ -1,26 +1,20 @@
-POSTGIS_SCRIPT_DIR ?=/usr/share/postgresql/11/contrib/postgis-2.5
+POSTGRESQL_VERSION ?= $(shell pg_config --version | awk '{print $$2}' | cut -d.  -f1)
+POSTGIS_SCRIPT_DIR ?= $(shell find `pg_config --sharedir`/contrib/ -name 'postgis-*' -type d | sort -n | head -1)
 
 check: loader 00-regress
+	export PGPORT=`pg_lsclusters $(POSTGRESQL_VERSION) -j | jq -r '.[0].port'`; \
+  echo "PGPORT: $$PGPORT"; \
 	POSTGIS_REGRESS_DB=nibio_reg ./run_test.pl --spatial_ref_sys execute_parallel
 
+debug:
+	@echo POSTGIS_SCRIPT_DIR=$(POSTGIS_SCRIPT_DIR)
+
 loader:
-#	find / -name shp2pgsql 2>/dev/null # debug 
-#	ls # debug
-	
-#	export PATH=$(PATH):`pg_config --bindir`; 
-	export PATH=$(PATH):/usr/bin
-	
-	which shp2pgsql pgsql2shp > /dev/null || \
-    { echo "shp2pgsql and pgsql2shp must be in your PATH" && exit 1; }; \
 	mkdir -p ../loader; \
-	ln -fs `which shp2pgsql` ../loader; \
-	ln -fs `which pgsql2shp` ../loader
+	ln -fs /bin/true ../loader/shp2pgsql; \
+	ln -fs /bin/true ../loader/pgsql2shp
 
 00-regress:
-	find /usr/share/postgresql -name postgis.sql # debug 
-	find /usr/share/postgresql -name shp2pgsql # debug 
-	ls $(POSTGIS_SCRIPT_DIR) # debug
-	
 	@test -f $(POSTGIS_SCRIPT_DIR)/postgis.sql || \
     { echo "No postgis.sql file found in $(POSTGIS_SCRIPT_DIR)," \
            "please tweak \$$POSTGIS_SCRIPT_DIR" && exit 1; }
